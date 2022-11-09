@@ -1,111 +1,154 @@
-// The following packages need to be installed using the following commands:
-// expo install expo-camera
-// expo install expo-media-library
-// expo install expo-sharing
-// expo install expo-av
-
-import { StyleSheet, Text, View, Button, SafeAreaView } from 'react-native';
-import { useEffect, useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet ,Text, View, Button, Image, Linking} from 'react-native';
 import { Camera } from 'expo-camera';
-import { Video } from 'expo-av';
-import { shareAsync } from 'expo-sharing';
-import * as MediaLibrary from 'expo-media-library';
+import * as Location from 'expo-location';
+import * as MediaLibrary from "expo-media-library";
+import * as ImagePicker from 'expo-image-picker';
 
 export default function App() {
-  let cameraRef = useRef();
-  const [hasCameraPermission, setHasCameraPermission] = useState();
-  const [hasMicrophonePermission, setHasMicrophonePermission] = useState();
-  const [hasMediaLibraryPermission, setHasMediaLibraryPermission] = useState();
-  const [isRecording, setIsRecording] = useState(false);
-  const [video, setVideo] = useState();
+  const [hasCameraPermission, setHasCameraPermission] = useState(null);
+  const [camera, setCamera] = useState(null);
+  const [image, setImage] = useState(null);
+  const [imageSave, setImageForSave] = useState(null);
+  const [type, setType] = useState(Camera.Constants.Type.back);
+  const [location, setLocation] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [check, setCheck] = useState(null);
 
   useEffect(() => {
-    (async () => {
-      const cameraPermission = await Camera.requestCameraPermissionsAsync();
-      const microphonePermission = await Camera.requestMicrophonePermissionsAsync();
-      const mediaLibraryPermission = await MediaLibrary.requestPermissionsAsync();
+      (async () => {
+        const cameraStatus = await Camera.requestCameraPermissionsAsync();
+        setHasCameraPermission(cameraStatus.status === 'granted');
 
-      setHasCameraPermission(cameraPermission.status === "granted");
-      setHasMicrophonePermission(microphonePermission.status === "granted");
-      setHasMediaLibraryPermission(mediaLibraryPermission.status === "granted");
-    })();
-  }, []);
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setErrorMsg('Permission to access location was denied');
+          return;
+        } else {
+          if (status.status === "granted") {
+            // Your actually code require this permission
+          }
+          let location = await Location.getCurrentPositionAsync({});
+          setLocation(location);
+        }
+      })();
+    }, []);
 
-  if (hasCameraPermission === undefined || hasMicrophonePermission === undefined) {
-    return <Text>Requestion permissions...</Text>
-  } else if (!hasCameraPermission) {
-    return <Text>Permission for camera not granted.</Text>
+  const takePicture = async () => {
+    setCheck(false);
+    setImage(false);
+    if(camera){
+        const data = await camera.takePictureAsync(null)
+        setImage(data.uri);
+        setImageForSave(data.uri);
+    }
   }
 
-  let recordVideo = () => {
-    setIsRecording(true);
-    let options = {
-      quality: "1080p",
-      maxDuration: 60,
-      mute: false
-    };
+  
+  const savePicture = async (uri) => {
+    try {
+      // Request device storage access permission
+      const file = uri.split('/').slice(0, -1).join('/');
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status === "granted") {
+      // Save image to media library
 
-    cameraRef.current.recordAsync(options).then((recordedVideo) => {
-      setVideo(recordedVideo);
-      setIsRecording(false);
+      // const fullfileName = uri.split('/').pop();
+      // const fileType = fullfileName.split('.').pop();
+      // const fileName = fullfileName.split('.').slice(0, -1).join('.');
+      // uri = "";
+      // uri = file+"/"+location.coords.latitude+"-"+location.coords.longitude+"."+fileType;
+      // console.log(uri);
+
+        await MediaLibrary.saveToLibraryAsync(uri);
+        setCheck(true);
+        alert("Image successfully saved");
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
+  const pickImage = async () => {
+    // No permissions request is necessary for launching the image library
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
     });
+
+    console.log(result);
+
+    if (!result.cancelled) {
+      setCheck(true);
+      setImage(result.uri);
+      setImageForSave(result.uri);
+    }
   };
 
-  let stopRecording = () => {
-    setIsRecording(false);
-    cameraRef.current.stopRecording();
-  };
-
-  if (video) {
-    let shareVideo = () => {
-      shareAsync(video.uri).then(() => {
-        setVideo(undefined);
-      });
-    };
-
-    let saveVideo = () => {
-      MediaLibrary.saveToLibraryAsync(video.uri).then(() => {
-        setVideo(undefined);
-      });
-    };
-
-    return (
-      <SafeAreaView style={styles.container}>
-        <Video
-          style={styles.video}
-          source={{uri: video.uri}}
-          useNativeControls
-          resizeMode='contain'
-          isLooping
-        />
-        <Button title="Share" onPress={shareVideo} />
-        {hasMediaLibraryPermission ? <Button title="Save" onPress={saveVideo} /> : undefined}
-        <Button title="Discard" onPress={() => setVideo(undefined)} />
-      </SafeAreaView>
-    );
+  let text = 'Waiting..';
+  if (errorMsg) {
+    text = errorMsg;
+  } else if (location) {
+    text = JSON.stringify(location);
   }
 
+  if (hasCameraPermission === false) {
+    return <Text>No access to camera</Text>;
+  }
   return (
-    <Camera style={styles.container} ref={cameraRef}>
-      <View style={styles.buttonContainer}>
-        <Button title={isRecording ? "Stop Recording" : "Record Video"} onPress={isRecording ? stopRecording : recordVideo} />
-      </View>
-    </Camera>
+   <View style={{ flex: 1}}>
+      { !check &&
+        <View style={styles.cameraContainer}>
+                  <Camera 
+                ref={ref => setCamera(ref)}
+                style={styles.fixedRatio} 
+                type={type}
+                ratio={'1:1'} />
+              
+        </View>
+      }   
+
+      { location &&
+        <Text style={styles.paragraph}>latitude : {location.coords.latitude}</Text>
+      }
+
+      { location &&
+        <Text style={styles.paragraph}>longitude : {location.coords.longitude}</Text>
+      }
+
+      { !check && 
+        <Button
+            title="Flip Image"
+            onPress={() => {
+              setType(
+                type === Camera.Constants.Type.back
+                  ? Camera.Constants.Type.front
+                  : Camera.Constants.Type.back
+              );
+            }}>
+        </Button>
+      } 
+
+      { image &&
+        <Text style={styles.paragraph}>Name Photo : {image}</Text>
+      }
+      
+      <Button title="Take Picture" onPress={() => takePicture()} />
+      <Button title="Save Picture" onPress={() => savePicture(imageSave)} />
+      <Button title="Pick an image from camera roll" onPress={pickImage} />
+      {image && <Image source={{uri: image}} style={{flex:1}}/>}
+   </View>
   );
 }
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  cameraContainer: {
+      flex: 1,
+      flexDirection: 'row'
   },
-  buttonContainer: {
-    backgroundColor: "#fff",
-    alignSelf: "flex-end"
-  },
-  video: {
-    flex: 1,
-    alignSelf: "stretch"
+  fixedRatio:{
+      flex: 1,
+      aspectRatio: 1
   }
-});
+})
